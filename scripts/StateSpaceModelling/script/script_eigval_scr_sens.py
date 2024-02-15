@@ -13,35 +13,42 @@ from numpy.linalg import inv
 import pandas as pd
 from tqdm import tqdm
 
-
 # %% ==================== ICWG ====================
 ccm_model = 'ssm_ccm - full'
 # ccm_model = 'ssm_ccm - full - filter'
 network = 'icwg' # select 'icwog', 'icwg', 'icwg_mva'
-suffix = '_zoom'
+suffix = '_base'
 additional = True
-save_ = True
+save_ = False
+double = False
+pu = False
+
 xr = 10
 Pload = 1
 Snom = 2
-pu_norm = (Pload/Snom)**(-1)
-
 scr_OWF = 10
 
-Vbase = 300e3
-Sbase = 1e9
-Zbase = Vbase**2/Sbase
+if pu:
+    Vbase = 1
+    Sbase = 1
+    Ibase = 1
+    Zbase = Vbase**2/Sbase
+else:
+    Vbase = 300e3
+    Sbase = 1e9
+    Ibase = Sbase/(np.sqrt(3)*Vbase)
+    Zbase = Vbase**2/Sbase
 
 Lv = 0.07
 Rv = 0.03
 
-L_arm = 0.002
+L_arm = 0.002/90
 
 sens = {}
 sens_vi = {}
 
-exp_range = np.logspace(np.log10(1), np.log10(12), num=40)
-# exp_range = np.logspace(np.log10(1), np.log10(12), num=3)
+exp_range = np.logspace(np.log10(1), np.log10(12), num=50)
+# exp_range = np.logspace(np.log10(1), np.log10(12), num=5)
 
 #%%
 
@@ -75,23 +82,23 @@ for scr in tqdm(exp_range):
 # for scr in tqdm([10]):
 
     # Get initial conditions
-    net = NetworkClass(verbose=False, scr_OWF=scr_OWF, scr_HSC1_icwg=scr*pu_norm, xr_HSC1_icwg=xr, Pload=-1*Pload)
+    net = NetworkClass(verbose=False, scr_OWF=scr_OWF, scr_HSC1_icwg=scr*(1,2)[double], xr_HSC1_icwg=xr, Pload=-1*Pload)
     init_cond = net.load_flow2init_cond('icwg',normalize_currents=False)
-    
-    Z = getattr(net,f'Z_{network}')
+    init_cond
+    Z = getattr(net,f'Z_{network}') * Zbase
     # Yc = getattr(net,f'Y_{network}_cmplx')
 
     # net.lnd_icwg.draw()
 
     # ------------------------ NO VIRTUAL IMPEDANCE ------------------------ 
     # Load small-signal models
-    ccm1, init_data1 = load_ccm(**init_cond[1], scr=0, xr=10, x_vi=0, L_v=0, R_v=0, L_arm = L_arm,
+    ccm1, init_data1 = load_ccm(**init_cond[1], scr=0, xr=10, x_vi=0, L_v=0, R_v=0, L_arm = L_arm,Vbase =Vbase, Ibase =Ibase,
                                 system_input=['v_gD', 'v_gQ'],
                                 system_output=['i_oD', 'i_oQ'],
                                 # system_output=['i_od','i_oq'],
                                 ccm_name=ccm_model)
 
-    ccm2, init_data2 = load_ccm(**init_cond[2], scr=0, xr=10, x_vi=0, L_v=0, R_v=0, L_arm = L_arm,
+    ccm2, init_data2 = load_ccm(**init_cond[2], scr=0, xr=10, x_vi=0, L_v=0, R_v=0, L_arm = L_arm,Vbase =Vbase,Ibase =Ibase,
                                 system_input=['v_gD', 'v_gQ'],
                                 system_output=['i_oD', 'i_oQ'],
                                 # system_output=['i_od','i_oq'],
@@ -111,13 +118,13 @@ for scr in tqdm(exp_range):
 
     # ------------------------ WITH VIRTUAL IMPEDANCE ------------------------ 
     # Load small-signal models
-    ccm1, init_data1 = load_ccm(**init_cond[1], scr=0, xr=10, x_vi=1, L_v=Lv, R_v=Rv, L_arm = L_arm,
+    ccm1, init_data1 = load_ccm(**init_cond[1], scr=0, xr=10, x_vi=1, L_v=Lv, R_v=Rv, L_arm = L_arm, Vbase =Vbase,Ibase =Ibase,
                                 system_input=['v_gD', 'v_gQ'],
                                 system_output=['i_oD', 'i_oQ'],
                                 # system_output=['i_od','i_oq'],
                                 ccm_name=ccm_model)
 
-    ccm2, init_data2 = load_ccm(**init_cond[2], scr=0, xr=10,x_vi=1, L_v=Lv, R_v=Rv, L_arm = L_arm,
+    ccm2, init_data2 = load_ccm(**init_cond[2], scr=0, xr=10,x_vi=1, L_v=Lv, R_v=Rv, L_arm = L_arm,Vbase =Vbase,Ibase =Ibase,
                                 system_input=['v_gD', 'v_gQ'],
                                 system_output=['i_oD', 'i_oQ'],
                                 # system_output=['i_od','i_oq'],
@@ -171,7 +178,7 @@ if additional:
     for scr in tqdm([200]):
     # for scr in tqdm([1,3,12,30,200]):
         # Get initial conditions
-        net = NetworkClass(verbose=False, scr_OWF=scr_OWF, scr_HSC1_icwg=scr*pu_norm, xr_HSC1_icwg=10, Pload=-1)
+        net = NetworkClass(verbose=False, scr_OWF=scr_OWF, scr_HSC1_icwg=scr*(1,(Pload/Snom)**(-1))[double], xr_HSC1_icwg=10, Pload=-1)
         init_cond = net.load_flow2init_cond('icwg')
         Z = getattr(net,f'Z_{network}')
 
@@ -249,13 +256,17 @@ for k,v in sens.items():
     if (v.real> 0).any():
         print(k,v.real.max())
     else:
-        pass
-        # print(k)
+        # pass
+        print(k)
         # break
-   
+
+fig, ax = plt.subplots(1,1,dpi=200)
+ax.axhline(0,lw=0.75,color='k')
 plt.plot(sens.keys(),[v.real.max() for k,v in sens.items()])
 plt.grid(ls=':')
-    
+plt.xlabel('SCR') 
+plt.ylabel('$\\mathrm{max}\\left(\\Re(\\lambda)\\right)$') 
+
 #%%
 
 # Example data: Replace this with your actual data
@@ -265,7 +276,7 @@ if 'filter' in ccm_model:
     axins_view1_vi,axins_loc1 = (-50,1,-100,100),(0.1,0.775,.3,.2)
     axins_view2,axins_loc2 = (-1000,10,-100,100),(0.1,0.05,.3,.2)
 else:
-    axins_view1,axins_loc1 =  (-10,1,-60,60),(0.3,0.6,.4,.3)
+    axins_view1,axins_loc1 =  (-10,5,-60,60),(0.3,0.6,.4,.3)
     axins_view1_vi,axins_loc1=(-50,1,-60,60),(0.3,0.6,.4,.3)
     axins_view2,axins_loc2 = (-800,10,-100,100),(0.35,0.1,.3,.3)
 
@@ -285,8 +296,8 @@ plot_eigvals_dict('SCR',sens,save=savefile,y_offset=0,
                   # hline = {'color':'red','vmin':2.5*2*np.pi,'vmax':6.5*2*np.pi},
                   hline = {'color':'red','vmin':2.*2*np.pi,'vmax':6.25*2*np.pi},
                   # additional=sens_
-                  xlim=(-750,10),
-                  ylim=(-100,100),
+                   xlim=(-750,10),
+                   ylim=(-100,100),
                   )
 
 if not save_: 
@@ -304,8 +315,8 @@ plot_eigvals_dict('SCR',sens_vi,save=savefile,y_offset=200,
                   # insert_axis_kwargs2={'color':'white','ls':':'},
                   # show_labels=[9,10,15,16],
                   additional=sens_vi_,
-                  xlim=(-750,10),
-                  ylim=(-100,100),
+                   xlim=(-750,10),
+                   ylim=(-100,100),
                   )
 
 #%%
